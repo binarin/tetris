@@ -7,7 +7,8 @@
 start(_Type, _Args) ->
     Dispatch = cowboy_router:compile(
                  [{'_', [{"/", cowboy_static, {priv_file, tetris, "index.html"}},
-                         {"/websocket", ws_handler, []},
+                         {"/ws", bullet_handler, [{handler, tetris_bullet}]},
+                         {"/js/bullet.js", cowboy_static, {priv_file, bullet, "bullet.js"}},
                          {"/static/[...]", cowboy_static, {priv_dir, tetris, "static"}}]}
                  ]),
     {ok, _} = cowboy:start_http(http, 100, [{port, 8080}],

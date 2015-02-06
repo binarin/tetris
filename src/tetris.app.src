@@ -6,7 +6,8 @@
 	{registered, []},
 	{applications, [kernel,
                         stdlib,
-                        cowboy
+                        cowboy,
+                        lager
 	]},
 	{mod, {tetris_app, []}},
 	{env, []}
