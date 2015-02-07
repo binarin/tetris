@@ -12,7 +12,8 @@
 -behaviour(gen_server).
 
 %% API
--export([start/0, start_link/0, player_connected/3, player_disconnected/3]).
+-export([start/0, start_link/0, player_connected/3, player_disconnected/3,
+         keypress/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -70,6 +71,9 @@ player_connected(Server, PlayerId, PlayerSocket) ->
 player_disconnected(Server, _PlayerId, _PlayerSocket) ->
     gen_server:call(Server, player_disconnected).
 
+keypress(Server, Key) ->
+    gen_server:call(Server, {keypress, Key}).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
@@ -114,6 +118,8 @@ handle_call({player_connected, PlayerId, PlayerSocket}, _From, #state{player_id 
                                     player_socket = PlayerSocket}),
     tetris_bullet:reset_board(PlayerSocket, ?ROWS, ?COLS, State1#state.board),
     {reply, ok, State1, move_timeout(State1)};
+handle_call({keypress, _Key} = Event, From, State) ->
+    handle_keypress_call(Event, From, State);
 handle_call({player_connect, NewPlayerId, _PlayerSocket}, _From, #state{player_id = OldPlayerId} = State) ->
     lager:info("Game already have another player ~p, ~p is not allowed to connect", [OldPlayerId, NewPlayerId]),
     {reply, ok, State};
@@ -184,13 +190,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 make_empty_board() ->
-    %% array:new([?ROWS * ?COLS, {default, false}]).
-    array:from_list([case random:uniform(10) of
-                         1 ->
-                             true;
-                         _ -> false
-                     end || _X <- lists:seq(1, 200)],
-                    false).
+    array:new([?ROWS * ?COLS, {default, false}]).
 
 microtime() ->
     {MegaSecs, Secs, MicroSecs} = os:timestamp(),
@@ -216,3 +216,21 @@ move_timeout(#state{speed = Speed, last_move_time = LastMoveTime}) ->
         MicroSecondsLeft ->
             MicroSecondsLeft div 1000
     end.
+
+handle_keypress_call({keypress, Key}, _From, #state{player_socket = PlayerSocket} = State) ->
+    lager:info("Keypress from client ~p", [Key]),
+    State1 = add_bottom_line(State, 70),
+    tetris_bullet:reset_board(PlayerSocket, ?ROWS, ?COLS, State1#state.board),
+    {reply, ok, State1, move_timeout(State1)}.
+
+%%%===================================================================
+%%% Game board handling
+%%%===================================================================
+add_bottom_line(#state{board = Board} = State, FillPercent) ->
+    lager:info("Board ~p", [Board]),
+    {_EmptyDiscard, Rest} = lists:split(?COLS, array:to_list(Board)),
+    NewLine = [case random:uniform(100) of
+                   X when X < FillPercent -> true;
+                   _ -> false
+               end || _ <- lists:seq(1, ?COLS)],
+    State#state{board = array:from_list(Rest ++ NewLine, false)}.

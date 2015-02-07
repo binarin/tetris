@@ -11,7 +11,14 @@ init(_Transport, Req, _Opts, _Active) ->
     {ok, Req, undefined_state}.
 
 stream(Data, Req, State) ->
-    lager:info("Stream received: ~p", [Req]),
+    Parsed = atomize_map_keys(jiffy:decode(Data, [return_maps])),
+    lager:info("Stream received: ~p", [Parsed]),
+    case Parsed of
+        #{event := <<"keypress">>, key := Key} ->
+            tetris_game:keypress(tetris_game, Key);
+        _ ->
+            lager:info("Command unknown: ~p", [Parsed])
+    end,
     {reply, Data, Req, State}.
 
 info({reset_board, Rows, Cols, Board}, Req, State) ->
@@ -37,3 +44,7 @@ terminate(_Req, _State) ->
 %% API
 reset_board(PlayerSocket, Rows, Cols, Board) ->
     PlayerSocket ! {reset_board, Rows, Cols, Board}.
+
+%% internal functions
+atomize_map_keys(Map) ->
+    maps:from_list([ {erlang:binary_to_atom(K, utf8), V} || {K, V} <- maps:to_list(Map)]).

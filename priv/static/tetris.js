@@ -17,6 +17,11 @@ function Transport(board) {
     // };
 }
 
+Transport.prototype.sendkey = function(key) {
+    this.bullet.send(JSON.stringify({"event": "keypress",
+                                     "key": key}));
+};
+
 function Board(rows, cols, canvas) {
     this.transport = new Transport(this);
     this.rows = rows;
@@ -52,6 +57,7 @@ Board.prototype.onmessage = function(msg) {
 };
 
 Board.prototype.keydown = function(key) {
+    this.transport.sendkey(key);
 };
 
 Board.prototype.render = function() {
@@ -72,8 +78,20 @@ Board.prototype.render = function() {
     }
 };
 
+var keymap = {
+    38: "up",
+    40: "down",
+    37: "left",
+    39: "right",
+    32: "space"
+};
+
 $(document).ready(function () {
     var board = new Board(20, 10, document.getElementsByTagName("canvas")[0]);
-    board.board[7][7] = 1;
-    board.render();
+    $(document).keydown(function (event) {
+        if ( event.which in keymap ) {
+            event.stopPropagation();
+            board.keydown(keymap[event.which]);
+        }
+    });
 });
