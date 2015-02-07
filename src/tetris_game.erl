@@ -2,7 +2,7 @@
 %%% @author Alexey Lebedeff <binarin@binarin.ru>
 %%% @copyright (C) 2015, Alexey Lebedeff
 %%% @doc
-%%%
+%%% Standalone tetris game (board for one player).
 %%% @end
 %%% Created :  6 Feb 2015 by Alexey Lebedeff <binarin@binarin.ru>
 %%%-------------------------------------------------------------------
@@ -12,15 +12,40 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, player_connected/3]).
+-export([start/0, start_link/0, player_connected/3, player_disconnected/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
+-define(ROWS, 20).
+-define(COLS, 10).
 
--record(state, {players = []}).
+-define(NUM_BLOCKS, 5).
+%% block rotation is number between 1 and 4, 1 being "no rotation" (as
+%% in ?BLOCKS below), 2 is 90deg clockwise and so on.
+-define(BLOCKS, [[ 1, 1, 1, 1],
+                 
+                 [ 1, 1, 0, 0,
+                   0, 1, 1, 0 ],
+
+                 [ 0, 1, 1, 0,
+                   1, 1 ],
+
+                 [ 1, 1, 0, 0,
+                   1, 1 ],
+
+                 [ 0, 1, 0, 0,
+                   1, 1, 1 ]]).
+
+-record(state, {player_id,
+                player_socket,
+                board,
+                speed,  %% milliseconds between automatic block movements
+                last_move_time,
+                current_block,
+                current_rotation}).
 
 %%%===================================================================
 %%% API
@@ -36,8 +61,14 @@
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-player_connected(Server, PlayerInfo, PlayerSocket) ->
-    gen_server:call(Server, {player_connected, PlayerInfo, PlayerSocket}).
+start() ->
+    gen_server:start({local, ?SERVER}, ?MODULE, [], []).
+
+player_connected(Server, PlayerId, PlayerSocket) ->
+    gen_server:call(Server, {player_connected, PlayerId, PlayerSocket}).
+
+player_disconnected(Server, _PlayerId, _PlayerSocket) ->
+    gen_server:call(Server, player_disconnected).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -71,9 +102,26 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({player_connected, PlayerInfo, PlayerSocket}, _From, #state{players=Players} = State) ->
-    lager:info("Player connected"),
-    {reply, ok, State#state{players = [{PlayerInfo, PlayerSocket} | Players]}};
+handle_call(player_disconnected, _From, #state{player_id = PlayerId}) ->
+    lager:info("Player ~p disconnected", [PlayerId]),
+    {reply, ok, #state{}};
+handle_call({player_connected, PlayerId, PlayerSocket}, _From, #state{player_id = PlayerId} = State) ->
+    lager:info("Player ~p reconnected (socket ~p)", [PlayerId, PlayerSocket]),
+    {reply, ok, State#state{player_socket = PlayerSocket}};
+handle_call({player_connected, PlayerId, PlayerSocket}, _From, #state{player_id = undefined} = State) ->
+    lager:info("Player ~p connected, starting game (socket ~p)", [PlayerId, PlayerSocket]),
+    State1 = start_game(State#state{player_id = PlayerId,
+                                    player_socket = PlayerSocket}),
+    tetris_bullet:reset_board(PlayerSocket, ?ROWS, ?COLS, State1#state.board),
+    {reply, ok, State1, move_timeout(State1)};
+handle_call({player_connect, NewPlayerId, _PlayerSocket}, _From, #state{player_id = OldPlayerId} = State) ->
+    lager:info("Game already have another player ~p, ~p is not allowed to connect", [OldPlayerId, NewPlayerId]),
+    {reply, ok, State};
+handle_call({add_block, _X, _Y} = Msg, _From, #state{player_socket=PlayerSocket} = State) ->
+    PlayerSocket ! Msg,
+    {reply, ok, State};
+handle_call(stop, _From, State) ->
+    {stop, normal, ok, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -101,6 +149,9 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
+handle_info(timeout, State) ->
+    lager:info("Move timeout happened"),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -132,3 +183,36 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+make_empty_board() ->
+    %% array:new([?ROWS * ?COLS, {default, false}]).
+    array:from_list([case random:uniform(10) of
+                         1 ->
+                             true;
+                         _ -> false
+                     end || _X <- lists:seq(1, 200)],
+                    false).
+
+microtime() ->
+    {MegaSecs, Secs, MicroSecs} = os:timestamp(),
+    MicroSecs + 1000000 * (Secs + 1000000 * MegaSecs).
+
+random_block() ->
+    {lists:nth(random:uniform(?NUM_BLOCKS), ?BLOCKS),
+     random:uniform(4)}.
+
+start_game(State) ->
+    {Block, Rotation} = random_block(),
+    State#state{
+      speed = 500,
+      board = make_empty_board(),
+      current_block = Block,
+      current_rotation = Rotation,
+      last_move_time = microtime()}.
+
+move_timeout(#state{speed = Speed, last_move_time = LastMoveTime}) ->
+    case LastMoveTime + Speed - microtime() of
+        NoMoreLeft when NoMoreLeft =< 0 ->
+            0;
+        MicroSecondsLeft ->
+            MicroSecondsLeft div 1000
+    end.
