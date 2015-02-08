@@ -1,10 +1,7 @@
 %%%-------------------------------------------------------------------
-%%% @author Alexey Lebedeff <binarin@binarin.ru>
-%%% @copyright (C) 2015, Alexey Lebedeff
 %%% @doc
 %%% Standalone tetris game (board for one player).
 %%% @end
-%%% Created :  6 Feb 2015 by Alexey Lebedeff <binarin@binarin.ru>
 %%%-------------------------------------------------------------------
 -module(tetris_game).
 -compile([{parse_transform, lager_transform}]).
@@ -19,32 +16,47 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+-include_lib("eunit/include/eunit.hrl").
+
 -define(SERVER, ?MODULE).
 -define(ROWS, 20).
 -define(COLS, 10).
 
 -define(NUM_BLOCKS, 5).
-%% block rotation is number between 1 and 4, 1 being "no rotation" (as
-%% in ?BLOCKS below), 2 is 90deg clockwise and so on.
--define(BLOCKS, [[ 1, 1, 1, 1],
-                 
-                 [ 1, 1, 0, 0,
-                   0, 1, 1, 0 ],
 
-                 [ 0, 1, 1, 0,
-                   1, 1 ],
+%% Blocks are rotated around center, clockwise.
+-define(BLOCKS,
+        [ "0000"
+          "1111"
+          "0000"
+          "0000",
 
-                 [ 1, 1, 0, 0,
-                   1, 1 ],
+          "0000"
+          "0011"
+          "0110"
+          "0000",
 
-                 [ 0, 1, 0, 0,
-                   1, 1, 1 ]]).
+          "0000"
+          "0110"
+          "0011"
+          "0000",
+
+          "0000"
+          "0110"
+          "0110"
+          "0000",
+
+          "0000"
+          "0100"
+          "1110"
+          "0000"
+        ]).
 
 -record(state, {player_id,
                 player_socket,
                 board,
                 speed,  %% milliseconds between automatic block movements
-                last_move_time,
+                block_move_timer,
                 current_block,
                 current_rotation}).
 
@@ -117,7 +129,7 @@ handle_call({player_connected, PlayerId, PlayerSocket}, _From, #state{player_id 
     State1 = start_game(State#state{player_id = PlayerId,
                                     player_socket = PlayerSocket}),
     tetris_bullet:reset_board(PlayerSocket, ?ROWS, ?COLS, State1#state.board),
-    {reply, ok, State1, move_timeout(State1)};
+    {reply, ok, State1};
 handle_call({keypress, _Key} = Event, From, State) ->
     handle_keypress_call(Event, From, State);
 handle_call({player_connect, NewPlayerId, _PlayerSocket}, _From, #state{player_id = OldPlayerId} = State) ->
@@ -155,8 +167,8 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(timeout, State) ->
-    lager:info("Move timeout happened"),
+handle_info(move_block, State) ->
+    %% lager:info("Move timeout happened"),
     {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -197,40 +209,97 @@ microtime() ->
     MicroSecs + 1000000 * (Secs + 1000000 * MegaSecs).
 
 random_block() ->
-    {lists:nth(random:uniform(?NUM_BLOCKS), ?BLOCKS),
+    {get_block_as_array(random:uniform(?NUM_BLOCKS) - 1),
      random:uniform(4)}.
 
 start_game(State) ->
     {Block, Rotation} = random_block(),
+    {ok, TRef} = timer:send_interval(500, move_block),
     State#state{
       speed = 500,
       board = make_empty_board(),
       current_block = Block,
       current_rotation = Rotation,
-      last_move_time = microtime()}.
-
-move_timeout(#state{speed = Speed, last_move_time = LastMoveTime}) ->
-    case LastMoveTime + Speed - microtime() of
-        NoMoreLeft when NoMoreLeft =< 0 ->
-            0;
-        MicroSecondsLeft ->
-            MicroSecondsLeft div 1000
-    end.
+      block_move_timer = TRef}.
 
 handle_keypress_call({keypress, Key}, _From, #state{player_socket = PlayerSocket} = State) ->
     lager:info("Keypress from client ~p", [Key]),
     State1 = add_bottom_line(State, 70),
     tetris_bullet:reset_board(PlayerSocket, ?ROWS, ?COLS, State1#state.board),
-    {reply, ok, State1, move_timeout(State1)}.
+    {reply, ok, State1}.
 
 %%%===================================================================
 %%% Game board handling
 %%%===================================================================
 add_bottom_line(#state{board = Board} = State, FillPercent) ->
-    lager:info("Board ~p", [Board]),
     {_EmptyDiscard, Rest} = lists:split(?COLS, array:to_list(Board)),
     NewLine = [case random:uniform(100) of
                    X when X < FillPercent -> true;
                    _ -> false
                end || _ <- lists:seq(1, ?COLS)],
     State#state{board = array:from_list(Rest ++ NewLine, false)}.
+
+
+get_block_as_list(BlockNumber) ->
+    [ X - $0 || X <- lists:nth(BlockNumber + 1, ?BLOCKS) ].
+
+get_block_as_array(BlockNumber) ->
+    array:from_list(get_block_as_list(BlockNumber), 0).
+
+%%--------------------------------------------------------------------
+%% @doc
+%%
+%% Converts tetramino number and its rotation to 16-element array,
+%% representing the block in its fullest.  
+%%
+%% @spec
+%% @end
+%%--------------------------------------------------------------------
+expand_block(BlockNumber, Rotation) ->
+    InitialBlock = get_block_as_array(BlockNumber),
+    rotate_block(InitialBlock, Rotation).
+
+rotate_block(BlockArray, 0) ->
+    BlockArray;
+rotate_block(BlockArray, N) ->
+    Rotated = array:map(
+                fun(Idx, _Value) ->
+                        Row = Idx div 4,
+                        Col = Idx rem 4,
+                        array:get((3 - Col) * 4 + Row, BlockArray)
+                end,
+                array:new([16, fixed, {default, 0}])),
+    rotate_block(Rotated, N - 1).
+
+%%%===================================================================
+%%% Tests
+%%%===================================================================
+
+expand_block_test() ->
+    ToString = fun(Block) ->
+                       [ $0 + X || X <- array:to_list(Block) ]
+               end,
+    ?assertEqual(
+       "0000"
+       "0100"
+       "1110"
+       "0000",
+       ToString(expand_block(4, 0))),
+    ?assertEqual(
+       "0100"
+       "0110"
+       "0100"
+       "0000",
+       ToString(expand_block(4, 1))),
+    ?assertEqual(
+       "0000"
+       "0111"
+       "0010"
+       "0000",
+       ToString(expand_block(4, 2))),
+    ?assertEqual(
+       "0000"
+       "0010"
+       "0110"
+       "0010",
+       ToString(expand_block(4, 3))).
