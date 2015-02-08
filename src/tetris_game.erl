@@ -58,7 +58,8 @@
                 speed,  %% milliseconds between automatic block movements
                 block_move_timer,
                 current_block,
-                current_rotation}).
+                current_col,
+                current_row}).
 
 %%%===================================================================
 %%% API
@@ -129,6 +130,7 @@ handle_call({player_connected, PlayerId, PlayerSocket}, _From, #state{player_id 
     State1 = start_game(State#state{player_id = PlayerId,
                                     player_socket = PlayerSocket}),
     tetris_bullet:reset_board(PlayerSocket, ?ROWS, ?COLS, State1#state.board),
+    tetris_bullet:current_block(PlayerSocket, State1#state.current_block, State1#state.current_col, State1#state.current_row),
     {reply, ok, State1};
 handle_call({keypress, _Key} = Event, From, State) ->
     handle_keypress_call(Event, From, State);
@@ -204,22 +206,17 @@ code_change(_OldVsn, State, _Extra) ->
 make_empty_board() ->
     array:new([?ROWS * ?COLS, {default, false}]).
 
-microtime() ->
-    {MegaSecs, Secs, MicroSecs} = os:timestamp(),
-    MicroSecs + 1000000 * (Secs + 1000000 * MegaSecs).
-
 random_block() ->
-    {get_block_as_array(random:uniform(?NUM_BLOCKS) - 1),
-     random:uniform(4)}.
+    get_block_as_array(random:uniform(?NUM_BLOCKS) - 1).
 
 start_game(State) ->
-    {Block, Rotation} = random_block(),
     {ok, TRef} = timer:send_interval(500, move_block),
     State#state{
       speed = 500,
       board = make_empty_board(),
-      current_block = Block,
-      current_rotation = Rotation,
+      current_block = random_block(),
+      current_row = 0,
+      current_col = 3,
       block_move_timer = TRef}.
 
 handle_keypress_call({keypress, Key}, _From, #state{player_socket = PlayerSocket} = State) ->

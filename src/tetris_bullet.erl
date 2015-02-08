@@ -2,7 +2,7 @@
 -compile([{parse_transform, lager_transform}]).
 -export([init/4, stream/3, info/3, terminate/2]).
 
--export([reset_board/4]).
+-export([reset_board/4, current_block/4]).
 
 init(_Transport, Req, _Opts, _Active = true) ->
     tetris_game:player_connected(tetris_game, 1, self()),
@@ -32,8 +32,14 @@ info({add_block, X, Y}, Req, State) ->
                            {data, [X, Y]}]}),
      Req, State
     };
-info(_Info, Req, State) ->
-    lager:info("Info received: ~p", [Req]),
+info({current_block, Block, CurrentCol, CurrentRow}, Req, State) ->
+    {reply, jiffy:encode({[{command, current_block},
+                           {block, array:to_list(Block)},
+                           {row, CurrentRow},
+                           {col, CurrentCol}]}),
+     Req, State};
+info(Info, Req, State) ->
+    lager:info("Info received: ~p", [Info]),
     {ok, Req, State}.
 
 terminate(_Req, _State) ->
@@ -44,6 +50,9 @@ terminate(_Req, _State) ->
 %% API
 reset_board(PlayerSocket, Rows, Cols, Board) ->
     PlayerSocket ! {reset_board, Rows, Cols, Board}.
+
+current_block(PlayerSocket, Block, CurrentCol, CurrentRow) ->
+    PlayerSocket ! {current_block, Block, CurrentCol, CurrentRow}.
 
 %% internal functions
 atomize_map_keys(Map) ->

@@ -27,6 +27,9 @@ function Board(rows, cols, canvas) {
     this.rows = rows;
     this.cols = cols;
     this.board = [];
+    this.current_block = [];
+    this.current_row = 0;
+    this.current_col = 8;
     this.canvas = canvas;
 
     for ( var i = 0; i < rows; i++ ) {
@@ -37,6 +40,13 @@ function Board(rows, cols, canvas) {
     }
 }
 
+Board.prototype.cmd_current_block = function(msg) {
+    this.current_block = msg.block;
+    this.current_row = msg.row;
+    this.current_col = msg.col;
+    this.render();
+};
+
 Board.prototype.onmessage = function(msg) {
     console.log(msg);
     if (msg.command == 'add_block') {
@@ -46,11 +56,13 @@ Board.prototype.onmessage = function(msg) {
     } else if (msg.command == 'reset_board') {
         console.log("Resetting board by server request");
         for ( var y = 0; y < this.rows; y++ ) {
-            for ( var x = 0; x < this.rows; x++ ) {
+            for ( var x = 0; x < this.cols; x++ ) {
                 this.board[y][x] = msg.board[this.cols * y + x];
             }
         }
         this.render();
+    } else if(("cmd_" + msg.command) in this) {
+        this["cmd_" + msg.command](msg);
     } else {
         console.log("Unknown command", msg);
     }
@@ -72,6 +84,15 @@ Board.prototype.render = function() {
     for (var y = 0; y < this.rows; y++) {
         for (var x = 0; x < this.cols; x++) {
             if ( this.board[y][x] ) {
+                ctx.fillRect( block_width * x, block_height * y, block_width - 1, block_height - 1 );
+            }
+        }
+    }
+
+    ctx.fillStyle = 'green';
+    for (y = this.current_row; y < Math.min(this.rows, this.current_row + 4); y++) {
+        for (x = this.current_col; x < Math.min(this.cols, this.current_col + 4); x++) {
+            if ( this.current_block[(y-this.current_row)*4 + x - this.current_col] ) {
                 ctx.fillRect( block_width * x, block_height * y, block_width - 1, block_height - 1 );
             }
         }
