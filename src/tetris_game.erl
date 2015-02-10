@@ -271,7 +271,6 @@ rotate_block(BlockArray, N) ->
 %%%===================================================================
 %%% Tests
 %%%===================================================================
-
 expand_block_test() ->
     ToString = fun(Block) ->
                        [ $0 + X || X <- array:to_list(Block) ]
@@ -300,3 +299,70 @@ expand_block_test() ->
        "0110"
        "0010",
        ToString(expand_block(4, 3))).
+
+valid_position(Board, Row, Column, Block) ->
+    array:foldl(
+      fun (Idx, Value, Acc) ->
+              PosY = Row + Idx div 4,
+              PosX = Column + Idx rem 4,
+              BlockElementNeedsToBePlaced = Value > 0,
+              HasEmptySpaceAtPos =
+                  if
+                      PosY < 0 orelse PosY >= ?ROWS -> false;
+                      PosX < 0 orelse PosX >= ?COLS -> false;
+                      true -> array:get(PosY * ?ROWS + PosX, Board) > 0
+                  end,
+              if
+                  Acc =:= false ->
+                      false;
+                  BlockElementNeedsToBePlaced and not HasEmptySpaceAtPos ->
+                      false;
+                  true -> true
+              end
+      end,
+      true,
+      Block).
+
+valid_position_test() ->
+    BlockStr =
+        "0000"
+        "0110"
+        "0011"
+        "0000",
+    BoardStr = 
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "0000000000"
+        "1000000000"
+        "0100000000"
+        "0010000000"
+        "0001000000",
+    Block = array:from_list([ X - $0 || X <- BlockStr ], 0),
+    Board = array:from_list([ X - $0 || X <- BoardStr ], 0),
+    ?assert(valid_position(Board, 0, 0, Block)),
+    ?assert(valid_position(Board, 0, -1, Block)),
+    ?assert(valid_position(Board, -1, 0, Block)),
+    ?assertNot(valid_position(Board, -2, 0, Block)),
+    ?assertNot(valid_position(Board, 0, -2, Block)),
+    ?assert(valid_position(Board, 0, 6, Block)),
+    ?assertNot(valid_position(Board, 0, 7, Block)),
+    ?assert(valid_position(Board, 10, 3, Block)),
+    ?assert(valid_position(Board, 17, -1, Block)),
+    ?assertNot(valid_position(Board, 17, 0, Block)),
+    ?assertNot(valid_position(Board, 18, 5, Block)),
+    ?assertNot(valid_position(Board, 17, 7, Block)).
+    
+
