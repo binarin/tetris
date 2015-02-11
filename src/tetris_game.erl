@@ -310,7 +310,7 @@ valid_position(Board, Row, Column, Block) ->
                   if
                       PosY < 0 orelse PosY >= ?ROWS -> false;
                       PosX < 0 orelse PosX >= ?COLS -> false;
-                      true -> array:get(PosY * ?ROWS + PosX, Board) > 0
+                      true -> array:get(PosY * ?COLS + PosX, Board) =:= 0
                   end,
               if
                   Acc =:= false ->
@@ -363,6 +363,7 @@ valid_position_test() ->
     ?assert(valid_position(Board, 17, -1, Block)),
     ?assertNot(valid_position(Board, 17, 0, Block)),
     ?assertNot(valid_position(Board, 18, 5, Block)),
-    ?assertNot(valid_position(Board, 17, 7, Block)).
+    ?assertNot(valid_position(Board, 17, 7, Block)),
+    ok.
     
 
