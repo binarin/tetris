@@ -8,6 +8,7 @@
 
 -behaviour(gen_server).
 
+
 %% API
 -export([start/0, start_link/0, player_connected/3, player_disconnected/3,
          keypress/2]).
@@ -22,13 +23,16 @@
 -define(ROWS, 20).
 -define(COLS, 10).
 
+-type board() :: array:array(integer()).
+-type block() :: array:array(integer()).
+
 -define(NUM_BLOCKS, 5).
 
 %% Blocks are rotated around center, clockwise.
 -define(BLOCKS,
         [ "0000"
-          "1111"
           "0000"
+          "1111"
           "0000",
 
           "0000"
@@ -119,9 +123,11 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call(player_disconnected, _From, #state{player_id = PlayerId}) ->
+handle_call(player_disconnected, _From, #state{player_id = PlayerId} = State) ->
     lager:info("Player ~p disconnected", [PlayerId]),
-    {reply, ok, #state{}};
+    State1 = stop_game(State),
+    State2 = State1#state{player_id = undefined},
+    {reply, ok, State2};
 handle_call({player_connected, PlayerId, PlayerSocket}, _From, #state{player_id = PlayerId} = State) ->
     lager:info("Player ~p reconnected (socket ~p)", [PlayerId, PlayerSocket]),
     {reply, ok, State#state{player_socket = PlayerSocket}};
@@ -219,6 +225,10 @@ start_game(State) ->
       current_col = 3,
       block_move_timer = TRef}.
 
+stop_game(State) ->
+    {ok, cancel} = timer:cancel(State#state.block_move_timer),
+    State#state{block_move_timer = undefined}.
+
 handle_keypress_call({keypress, Key}, _From, #state{player_socket = PlayerSocket} = State) ->
     lager:info("Keypress from client ~p", [Key]),
     State1 = add_bottom_line(State, 70),
@@ -268,6 +278,44 @@ rotate_block(BlockArray, N) ->
                 array:new([16, fixed, {default, 0}])),
     rotate_block(Rotated, N - 1).
 
+%%--------------------------------------------------------------------
+%% @doc Checks whether we could place given block at a given position.
+%% @end
+%%--------------------------------------------------------------------
+-spec valid_position(Board :: board(), Row :: integer(), Column :: integer(), Block :: block()) -> boolean().
+valid_position(Board, Row, Column, Block) ->
+    array:foldl(
+      fun (Idx, Value, Acc) ->
+              PosY = Row + Idx div 4,
+              PosX = Column + Idx rem 4,
+              BlockElementNeedsToBePlaced = Value > 0,
+              HasEmptySpaceAtPos =
+                  if
+                      PosY < 0 orelse PosY >= ?ROWS -> false;
+                      PosX < 0 orelse PosX >= ?COLS -> false;
+                      true -> array:get(PosY * ?COLS + PosX, Board) =:= 0
+                  end,
+              if
+                  Acc =:= false ->
+                      false;
+                  BlockElementNeedsToBePlaced and not HasEmptySpaceAtPos ->
+                      false;
+                  true -> true
+              end
+      end,
+      true,
+      Block).
+
+
+%%--------------------------------------------------------------------
+%% @doc Topmost row where we should insert new block so it will be
+%% fully visible.
+%% @end
+%%--------------------------------------------------------------------
+-spec initial_row(block()) -> integer().
+initial_row(Block) ->
+    0 - length(lists:takewhile(fun (X) -> X =:= 0 end, array:to_list(Block))) div 4.
+
 %%%===================================================================
 %%% Tests
 %%%===================================================================
@@ -299,29 +347,6 @@ expand_block_test() ->
        "0110"
        "0010",
        ToString(expand_block(4, 3))).
-
-valid_position(Board, Row, Column, Block) ->
-    array:foldl(
-      fun (Idx, Value, Acc) ->
-              PosY = Row + Idx div 4,
-              PosX = Column + Idx rem 4,
-              BlockElementNeedsToBePlaced = Value > 0,
-              HasEmptySpaceAtPos =
-                  if
-                      PosY < 0 orelse PosY >= ?ROWS -> false;
-                      PosX < 0 orelse PosX >= ?COLS -> false;
-                      true -> array:get(PosY * ?COLS + PosX, Board) =:= 0
-                  end,
-              if
-                  Acc =:= false ->
-                      false;
-                  BlockElementNeedsToBePlaced and not HasEmptySpaceAtPos ->
-                      false;
-                  true -> true
-              end
-      end,
-      true,
-      Block).
 
 valid_position_test() ->
     BlockStr =
@@ -366,4 +391,10 @@ valid_position_test() ->
     ?assertNot(valid_position(Board, 17, 7, Block)),
     ok.
     
-
+initial_row_test() ->
+    ?assertEqual(-2, initial_row(get_block_as_array(0))),
+    ?assertEqual(-1, initial_row(get_block_as_array(1))),
+    ?assertEqual(-1, initial_row(get_block_as_array(2))),
+    ?assertEqual(-1, initial_row(get_block_as_array(3))),
+    ?assertEqual(-1, initial_row(get_block_as_array(4))),
+    ok.
