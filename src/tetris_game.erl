@@ -175,11 +175,31 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(move_block, State) ->
-    %% lager:info("Move timeout happened"),
+handle_info(move_block, #state{block_move_timer = undefined} = State) ->
+    %% Game was stopped, it's leftover message, just ignore it.
     {noreply, State};
+handle_info(move_block, State) ->
+    {noreply, move_block(State)};
 handle_info(_Info, State) ->
     {noreply, State}.
+
+%% @doc Moves block one row down. If it's not possible - adds block to
+%% game board, and initializes new block movement. Returns new state.
+-spec move_block(State:: #state{}) -> #state{}.
+move_block(#state{current_row = Row, current_col = Col, current_block = Block, board = Board} = State) ->
+    State1 = case valid_position(Board, Row + 1, Col, Block) of
+                 true ->
+                     State#state{current_row = Row + 1};
+                 false ->
+                     NewBoard = fix_block_at_board(Board, Row, Col, Block),
+                     tetris_bullet:reset_board(State#state.player_socket, ?ROWS, ?COLS, NewBoard),
+                     State#state{board = NewBoard,
+                                 current_block = random_block(),
+                                 current_row = 0,
+                                 current_col = 3}
+             end,
+    tetris_bullet:current_block(State1#state.player_socket, State1#state.current_block, State1#state.current_col, State1#state.current_row),
+    State1.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -210,7 +230,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 make_empty_board() ->
-    array:new([?ROWS * ?COLS, {default, false}]).
+    array:new([?ROWS * ?COLS, {default, 0}]).
 
 random_block() ->
     get_block_as_array(random:uniform(?NUM_BLOCKS) - 1).
@@ -278,6 +298,29 @@ rotate_block(BlockArray, N) ->
                 array:new([16, fixed, {default, 0}])),
     rotate_block(Rotated, N - 1).
 
+
+%% @doc Block has reached it's final destination, add it as a static board content.
+-spec fix_block_at_board(Board :: board(), Row :: integer(), Col :: integer(), Block :: block()) -> board().
+fix_block_at_board(Board, Row, Col, Block) ->
+    array:map(
+      fun(Idx, Value) ->
+              BoardRow = Idx div ?COLS,
+              BoardCol = Idx rem ?COLS,
+              %% This cell coordinates in block coordinate space
+              BlockRow = BoardRow - Row,
+              BlockCol = BoardCol - Col,
+              if
+                  BlockRow >= 0 andalso BlockRow < 4 andalso BlockCol >= 0 andalso BlockCol < 4 ->
+                      case array:get(BlockRow * 4 + BlockCol, Block) of
+                          0 -> Value;
+                          BlockValue -> BlockValue
+                      end;
+                  true ->
+                      Value
+              end
+      end,
+      Board).
+
 %%--------------------------------------------------------------------
 %% @doc Checks whether we could place given block at a given position.
 %% @end
@@ -305,7 +348,6 @@ valid_position(Board, Row, Column, Block) ->
       end,
       true,
       Block).
-
 
 %%--------------------------------------------------------------------
 %% @doc Topmost row where we should insert new block so it will be
