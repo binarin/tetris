@@ -32,7 +32,7 @@ info({add_block, X, Y}, Req, State) ->
                            {data, [X, Y]}]}),
      Req, State
     };
-info({current_block, Block, CurrentCol, CurrentRow}, Req, State) ->
+info({current_block, Block, CurrentRow, CurrentCol}, Req, State) ->
     {reply, jiffy:encode({[{command, current_block},
                            {block, array:to_list(Block)},
                            {row, CurrentRow},
@@ -51,8 +51,8 @@ terminate(_Req, _State) ->
 reset_board(PlayerSocket, Rows, Cols, Board) ->
     PlayerSocket ! {reset_board, Rows, Cols, Board}.
 
-current_block(PlayerSocket, Block, CurrentCol, CurrentRow) ->
-    PlayerSocket ! {current_block, Block, CurrentCol, CurrentRow}.
+current_block(PlayerSocket, Block, CurrentRow, CurrentCol) ->
+    PlayerSocket ! {current_block, Block, CurrentRow, CurrentCol}.
 
 %% internal functions
 atomize_map_keys(Map) ->

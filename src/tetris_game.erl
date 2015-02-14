@@ -4,7 +4,7 @@
 %%% @end
 %%%-------------------------------------------------------------------
 -module(tetris_game).
--compile([{parse_transform, lager_transform}]).
+-compile([{parse_transform, lager_transform}, export_all]).
 
 -behaviour(gen_server).
 
@@ -30,29 +30,29 @@
 
 %% Blocks are rotated around center, clockwise.
 -define(BLOCKS,
-        [ "0000"
+        [ "1111"
           "0000"
-          "1111"
+          "0000"
           "0000",
 
-          "0000"
-          "0011"
           "0110"
+          "1100"
+          "0000"
           "0000",
 
-          "0000"
+          "1100"
           "0110"
-          "0011"
+          "0000"
           "0000",
 
+          "1100"
+          "1100"
           "0000"
-          "0110"
-          "0110"
           "0000",
 
-          "0000"
           "0100"
           "1110"
+          "0000"
           "0000"
         ]).
 
@@ -136,10 +136,10 @@ handle_call({player_connected, PlayerId, PlayerSocket}, _From, #state{player_id 
     State1 = start_game(State#state{player_id = PlayerId,
                                     player_socket = PlayerSocket}),
     tetris_bullet:reset_board(PlayerSocket, ?ROWS, ?COLS, State1#state.board),
-    tetris_bullet:current_block(PlayerSocket, State1#state.current_block, State1#state.current_col, State1#state.current_row),
+    tetris_bullet:current_block(PlayerSocket, State1#state.current_block, State1#state.current_row, State1#state.current_col),
     {reply, ok, State1};
 handle_call({keypress, _Key} = Event, From, State) ->
-    handle_keypress_call(Event, From, State);
+    {reply, ok, handle_keypress_call(Event, From, State)};
 handle_call({player_connect, NewPlayerId, _PlayerSocket}, _From, #state{player_id = OldPlayerId} = State) ->
     lager:info("Game already have another player ~p, ~p is not allowed to connect", [OldPlayerId, NewPlayerId]),
     {reply, ok, State};
@@ -198,7 +198,7 @@ move_block(#state{current_row = Row, current_col = Col, current_block = Block, b
                                  current_row = 0,
                                  current_col = 3}
              end,
-    tetris_bullet:current_block(State1#state.player_socket, State1#state.current_block, State1#state.current_col, State1#state.current_row),
+    tetris_bullet:current_block(State1#state.player_socket, State1#state.current_block, State1#state.current_row, State1#state.current_col),
     State1.
 
 %%--------------------------------------------------------------------
@@ -249,22 +249,29 @@ stop_game(State) ->
     {ok, cancel} = timer:cancel(State#state.block_move_timer),
     State#state{block_move_timer = undefined}.
 
-handle_keypress_call({keypress, Key}, _From, #state{player_socket = PlayerSocket} = State) ->
-    lager:info("Keypress from client ~p", [Key]),
-    State1 = add_bottom_line(State, 70),
-    tetris_bullet:reset_board(PlayerSocket, ?ROWS, ?COLS, State1#state.board),
-    {reply, ok, State1}.
+handle_keypress_call({keypress, <<"up">>}, _From, State) ->
+    NewBlock = rotate_block(State#state.current_block, 1),
+    case valid_position(State#state.board, State#state.current_row, State#state.current_col, NewBlock) of
+        true ->
+            tetris_bullet:current_block(State#state.player_socket, NewBlock,
+                                        State#state.current_row, State#state.current_col),
+            State#state{current_block = NewBlock};
+        false ->
+            State
+    end;
+handle_keypress_call({keypress, _Key}, _From, State) ->
+    State.
 
 %%%===================================================================
 %%% Game board handling
 %%%===================================================================
-add_bottom_line(#state{board = Board} = State, FillPercent) ->
-    {_EmptyDiscard, Rest} = lists:split(?COLS, array:to_list(Board)),
-    NewLine = [case random:uniform(100) of
-                   X when X < FillPercent -> true;
-                   _ -> false
-               end || _ <- lists:seq(1, ?COLS)],
-    State#state{board = array:from_list(Rest ++ NewLine, false)}.
+%% add_bottom_line(#state{board = Board} = State, FillPercent) ->
+%%     {_EmptyDiscard, Rest} = lists:split(?COLS, array:to_list(Board)),
+%%     NewLine = [case random:uniform(100) of
+%%                    X when X < FillPercent -> true;
+%%                    _ -> false
+%%                end || _ <- lists:seq(1, ?COLS)],
+%%     State#state{board = array:from_list(Rest ++ NewLine, false)}.
 
 
 get_block_as_list(BlockNumber) ->
@@ -287,7 +294,7 @@ expand_block(BlockNumber, Rotation) ->
     rotate_block(InitialBlock, Rotation).
 
 rotate_block(BlockArray, 0) ->
-    BlockArray;
+    strip_margins(BlockArray, margin_top(BlockArray), margin_left(BlockArray));
 rotate_block(BlockArray, N) ->
     Rotated = array:map(
                 fun(Idx, _Value) ->
@@ -349,14 +356,57 @@ valid_position(Board, Row, Column, Block) ->
       true,
       Block).
 
-%%--------------------------------------------------------------------
-%% @doc Topmost row where we should insert new block so it will be
-%% fully visible.
+
+%% @doc Calculates how many empty rows has array representing
+%% block. This margin is a result of block rotation which we are going
+%% to clean up later.
 %% @end
-%%--------------------------------------------------------------------
--spec initial_row(block()) -> integer().
-initial_row(Block) ->
-    0 - length(lists:takewhile(fun (X) -> X =:= 0 end, array:to_list(Block))) div 4.
+margin_top(BlockArray) ->
+    %% Location of first non-zero element
+    {ZeroList, _} = lists:splitwith(fun (A) -> A == 0 end, array:to_list(BlockArray)),
+    length(ZeroList) div 4.
+
+%% @doc Calculates how many empty columns has array representing
+%% block. This margin is a result of block rotation which we are going
+%% to clean up later.
+%% @end
+margin_left(BlockArray) ->
+    margin_left(array:to_list(BlockArray), 4).
+
+margin_left([], SoFar) ->
+    SoFar;
+margin_left([0, 0, 0, 0 | Rest], SoFar) ->
+    margin_left(Rest, SoFar);
+margin_left([0, 0, 0, X | Rest], SoFar) when X > 0 ->
+    margin_left(Rest, min(3, SoFar));
+margin_left([0, 0, X, _ | Rest], SoFar) when X > 0 ->
+    margin_left(Rest, min(2, SoFar));
+margin_left([0, X, _, _ | Rest], SoFar) when X > 0 ->
+    margin_left(Rest, min(1, SoFar));
+margin_left(_, _) ->
+    0.
+
+%% @doc Removes given number of rows and column from top and left side of the block, 
+%% to aleviate rotation side-effects.
+%% @end
+strip_margins(BlockArray, StripRows, StripCols) ->
+    io:format("Strip ~p - ~p,~p~n", [BlockArray, StripRows, StripCols]),
+    array:from_list(
+      lists:map(
+        fun (Idx) ->
+                TgtRow = Idx div 4,
+                TgtCol = Idx rem 4,
+                SrcRow = TgtRow + StripRows,
+                SrcCol = TgtCol + StripCols,
+                if
+                    SrcRow >= 4 orelse SrcCol >= 4 -> 0;
+                    true -> array:get(SrcRow * 4 + SrcCol, BlockArray)
+                end
+        end,
+        lists:seq(0, 15)),
+      0).
+
+
 
 %%%===================================================================
 %%% Tests
@@ -366,28 +416,28 @@ expand_block_test() ->
                        [ $0 + X || X <- array:to_list(Block) ]
                end,
     ?assertEqual(
-       "0000"
        "0100"
        "1110"
+       "0000"
        "0000",
        ToString(expand_block(4, 0))),
     ?assertEqual(
-       "0100"
-       "0110"
-       "0100"
+       "1000"
+       "1100"
+       "1000"
        "0000",
        ToString(expand_block(4, 1))),
     ?assertEqual(
+       "1110"
+       "0100"
        "0000"
-       "0111"
-       "0010"
        "0000",
        ToString(expand_block(4, 2))),
     ?assertEqual(
-       "0000"
-       "0010"
-       "0110"
-       "0010",
+       "0100"
+       "1100"
+       "0100"
+       "0000",
        ToString(expand_block(4, 3))).
 
 valid_position_test() ->
@@ -432,11 +482,49 @@ valid_position_test() ->
     ?assertNot(valid_position(Board, 18, 5, Block)),
     ?assertNot(valid_position(Board, 17, 7, Block)),
     ok.
-    
-initial_row_test() ->
-    ?assertEqual(-2, initial_row(get_block_as_array(0))),
-    ?assertEqual(-1, initial_row(get_block_as_array(1))),
-    ?assertEqual(-1, initial_row(get_block_as_array(2))),
-    ?assertEqual(-1, initial_row(get_block_as_array(3))),
-    ?assertEqual(-1, initial_row(get_block_as_array(4))),
-    ok.
+
+margin_left_test() ->
+    BlockStr =
+        "0000"
+        "0010"
+        "0011"
+        "0010",
+    Block = array:from_list([ X - $0 || X <- BlockStr ], 0),
+    ?assertEqual(2, margin_left(Block)).
+
+margin_top_test() ->
+    FromStr = fun (Str) ->
+                      array:from_list([ X - $0 || X <- Str ], 0)
+              end,
+    ?assertEqual(0, margin_top(FromStr("0100"
+                                       "0000"
+                                       "0000"
+                                       "0010"))),
+    ?assertEqual(1, margin_top(FromStr("0000"
+                                       "0100"
+                                       "0000"
+                                       "0010"))),
+    ?assertEqual(2, margin_top(FromStr("0000"
+                                       "0000"
+                                       "0010"
+                                       "0010"))),
+    ?assertEqual(3, margin_top(FromStr("0000"
+                                       "0000"
+                                       "0000"
+                                       "0010"))).
+
+strip_margins_test() ->
+    FromString = fun(Str) ->
+                         array:from_list([ X - $0 || X <- Str ], 0)
+                 end,
+    ToString = fun(Block) ->
+                       [ $0 + X || X <- array:to_list(Block) ]
+               end,
+    ?assertEqual("1000"
+                 "1100"
+                 "1000"
+                 "0000",
+                 ToString(strip_margins(FromString("0000"
+                                                   "0010"
+                                                   "0011"
+                                                   "0010"), 1, 2))).
