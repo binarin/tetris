@@ -259,6 +259,37 @@ handle_keypress_call({keypress, <<"up">>}, _From, State) ->
         false ->
             State
     end;
+handle_keypress_call({keypress, Key}, _From, State) when Key == <<"left">> orelse Key == <<"right">> ->
+    Delta = case Key of
+                <<"left">> -> -1;
+                <<"right">> -> 1
+            end,
+    case valid_position(State#state.board, State#state.current_row,
+                        State#state.current_col + Delta, State#state.current_block) of
+        true ->
+            NewCol = State#state.current_col + Delta,
+            tetris_bullet:current_block(State#state.player_socket, State#state.current_block,
+                                        State#state.current_row, NewCol),
+            State#state{current_col = NewCol};
+        false ->
+            State
+    end;
+handle_keypress_call({keypress, Key}, _From, State) when Key == <<"space">> orelse Key == <<"down">> ->
+    TargetRow =
+        lists:last(lists:takewhile(fun (Row) ->
+                                           valid_position(State#state.board, Row, State#state.current_col,
+                                                          State#state.current_block)
+                                   end,
+                                   lists:seq(State#state.current_row, ?ROWS - 1))),
+    NewBoard = fix_block_at_board(State#state.board,
+                                  TargetRow, State#state.current_col, State#state.current_block),
+    State1 = State#state{board = NewBoard,
+                         current_block = random_block(),
+                         current_row = 0,
+                         current_col = 3},
+    tetris_bullet:current_block(State1#state.player_socket, State1#state.current_block, State1#state.current_row, State1#state.current_col),
+    tetris_bullet:reset_board(State#state.player_socket, ?ROWS, ?COLS, NewBoard),
+    State1;
 handle_keypress_call({keypress, _Key}, _From, State) ->
     State.
 
