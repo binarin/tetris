@@ -26,7 +26,7 @@
 -type board() :: array:array(integer()).
 -type block() :: array:array(integer()).
 
--define(NUM_BLOCKS, 5).
+-define(NUM_BLOCKS, 7).
 
 %% Blocks are rotated around center, clockwise.
 -define(BLOCKS,
@@ -51,6 +51,16 @@
           "0000",
 
           "0100"
+          "1110"
+          "0000"
+          "0000",
+
+          "1110"
+          "1000"
+          "0000"
+          "0000",
+
+          "1000"
           "1110"
           "0000"
           "0000"
@@ -340,24 +350,25 @@ rotate_block(BlockArray, N) ->
 %% @doc Block has reached it's final destination, add it as a static board content.
 -spec fix_block_at_board(Board :: board(), Row :: integer(), Col :: integer(), Block :: block()) -> board().
 fix_block_at_board(Board, Row, Col, Block) ->
-    array:map(
-      fun(Idx, Value) ->
-              BoardRow = Idx div ?COLS,
-              BoardCol = Idx rem ?COLS,
-              %% This cell coordinates in block coordinate space
-              BlockRow = BoardRow - Row,
-              BlockCol = BoardCol - Col,
-              if
-                  BlockRow >= 0 andalso BlockRow < 4 andalso BlockCol >= 0 andalso BlockCol < 4 ->
-                      case array:get(BlockRow * 4 + BlockCol, Block) of
-                          0 -> Value;
-                          BlockValue -> BlockValue
-                      end;
-                  true ->
-                      Value
-              end
-      end,
-      Board).
+    remove_completed_rows(
+      array:map(
+        fun(Idx, Value) ->
+                BoardRow = Idx div ?COLS,
+                BoardCol = Idx rem ?COLS,
+                %% This cell coordinates in block coordinate space
+                BlockRow = BoardRow - Row,
+                BlockCol = BoardCol - Col,
+                if
+                    BlockRow >= 0 andalso BlockRow < 4 andalso BlockCol >= 0 andalso BlockCol < 4 ->
+                        case array:get(BlockRow * 4 + BlockCol, Block) of
+                            0 -> Value;
+                            BlockValue -> BlockValue
+                        end;
+                    true ->
+                        Value
+                end
+        end,
+        Board)).
 
 %%--------------------------------------------------------------------
 %% @doc Checks whether we could place given block at a given position.
@@ -437,6 +448,22 @@ strip_margins(BlockArray, StripRows, StripCols) ->
         lists:seq(0, 15)),
       0).
 
+remove_completed_rows(Board) ->
+    EmptyRow = lists:duplicate(?COLS, 0),
+    NewBoardList = lists:filter(
+                     fun (Row) ->
+                             lists:any(fun (Elt) -> Elt =:= 0 end, Row)
+                     end,
+                     board_row_list(Board)),
+    array:from_list(lists:flatten(lists:duplicate(?ROWS - length(NewBoardList), EmptyRow) ++ NewBoardList)).
+
+board_row_list([]) ->
+    [];
+board_row_list(BoardList) when is_list(BoardList) ->
+    {Row, Rest} = lists:split(?COLS, BoardList),
+    [Row | board_row_list(Rest)];
+board_row_list(Board) when is_tuple(Board) ->
+    board_row_list(array:to_list(Board)).
 
 
 %%%===================================================================
