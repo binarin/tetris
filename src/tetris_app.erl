@@ -20,8 +20,10 @@ cowboy_dispatch() ->
 start(_Type, _Args) ->
     Dispatch = cowboy_dispatch(),
     {ok, _} = cowboy:start_http(http, 100, [{port, 8080}],
-                                [{env, [{dispatch, Dispatch}]}]),
+                                [{env, [{dispatch, Dispatch}]},
+                                 {middlewares, [cowboy_router, tetris_http_session, cowboy_handler]}]),
     tetris_sup:start_link().
 
 stop(_State) ->
+    cowboy:stop_listener(http),
     ok.

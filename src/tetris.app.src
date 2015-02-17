@@ -7,7 +7,9 @@
 	{applications, [kernel,
                         stdlib,
                         cowboy,
-                        lager
+                        lager,
+                        crypto,
+                        mnesia
 	]},
 	{mod, {tetris_app, []}},
 	{env, []}
