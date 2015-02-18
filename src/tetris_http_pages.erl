@@ -10,8 +10,13 @@ init_session({Req, State}) ->
     {ok, Session, Req2} = tetris_http_session:ensure_session(Req),
     {Req2, State#{session => Session}}.
 
-init_user({Req, State}) ->
-    {Req, State#{user => undefined}}.
+init_user({Req, #{session := Session} = State}) ->
+    case tetris_http_session:get_value(user_id, Session) of
+        undefined ->
+            {Req, State#{user => undefined}};
+        UserId when is_integer(UserId) ->
+            {Req, State#{user => tetris_user:get_user(UserId)}}
+    end.
 
 init_bindings({Req, State}) ->
     {Bindings, Req2} = cowboy_req:bindings(Req),

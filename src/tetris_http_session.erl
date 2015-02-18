@@ -54,3 +54,6 @@ set_value(Session, Name, Value) ->
     Session2 = Session#session{attributes = maps:put(Name, Value, Session#session.attributes)},
     mnesia:dirty_write(http_sessions, Session2),
     {ok, Session2}.
+
+get_value(Key, #session{attributes = Attributes}) ->
+    maps:get(Key, Attributes).
