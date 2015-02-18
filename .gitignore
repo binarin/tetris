@@ -7,3 +7,5 @@
 /log/
 /src/log/
 /Mnesia.*
+/login_dtl.beam
+/main_dtl.beam

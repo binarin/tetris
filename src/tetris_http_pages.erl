@@ -4,18 +4,75 @@
 
 -export([init/3, handle/2, terminate/3]).
 
-init({_TransportName, _ProtocolName}, Req, _Opts) ->
-    {ok, Req, no_state}.
+-include("tetris_user.hrl").
 
-handle(Req, State) ->
-    {Session, _} = cowboy_req:meta(session, Req),
-    lager:info("~p", [Session]),
-    {ok, Body} = login_dtl:render([]),
+init_session({Req, State}) ->
+    {ok, Session, Req2} = tetris_http_session:ensure_session(Req),
+    {Req2, State#{session => Session}}.
+
+init_user({Req, State}) ->
+    {Req, State#{user => undefined}}.
+
+init_bindings({Req, State}) ->
+    {Bindings, Req2} = cowboy_req:bindings(Req),
+    State2 = State#{page => proplists:get_value(page, Bindings)},
+    {Req2, State2}.
+
+init_method({Req, State}) ->
+    {Method, Req2} = cowboy_req:method(Req),
+    State2 = State#{method => Method},
+    {Req2, State2}.
+
+init({_TransportName, _ProtocolName}, Req, _Opts) ->
+    {Req1, State1} = lists:foldl(fun (InitFun, Acc) -> InitFun(Acc) end,
+                                 {Req, #{}},
+                                 [fun init_session/1,
+                                  fun init_user/1,
+                                  fun init_bindings/1,
+                                  fun init_method/1]),
+    {ok, Req1, State1}.
+
+respond_template(Template, Vars, Req, State) ->
+    {ok, Body} = Template:render(Vars),
     {ok, Req2} = cowboy_req:reply(
-                   200, [{<<"content-type">>, <<"text/plain; charset=utf-8">>}],
+                   200, [{<<"content-type">>, <<"text/html; charset=utf-8">>}],
                    Body, Req),
     {ok, Req2, State}.
 
+redirect(Location, Req, State) ->
+    {ok, Req2} = cowboy_req:reply(302, [{<<"location">>, Location}], Req),
+    {ok, Req2, State}.
+
+try_login(Req, State) ->
+    {ok, Form, Req2} = cowboy_req:body_qs(Req),
+    case proplists:get_value(<<"user_id">>, Form) of
+        undefined ->
+            {false, Req2, State};
+        UserIdStr ->
+            User = tetris_user:get_user(binary_to_integer(UserIdStr)),
+            lager:info("User ~p logged in.", [User]),
+            {ok, Session} = tetris_http_session:set_value(maps:get(session, State), user_id, User#user.id),
+            {true, Req2, State#{user => User, session => Session}}
+    end.
+
+handle(Req, #{page := <<"login">>, user := undefined, method := <<"POST">>} = State) ->
+    {LoggedIn, Req2, State2} = try_login(Req, State),
+    case LoggedIn of
+        true ->
+            redirect(<<"/home">>, Req2, State2);
+        false ->
+            respond_template(login_dtl, #{errors => <<"Wrong login">>}, Req2, State2)
+    end;
+handle(Req, #{page := <<"login">>, user := undefined} = State) ->
+    respond_template(login_dtl, [], Req, State);
+handle(Req, #{user := undefined} = State) ->
+    redirect(<<"/login">>, Req, State);
+handle(Req, State) ->
+    {ok, Body} = main_dtl:render(State),
+    {ok, Req3} = cowboy_req:reply(
+                   200, [{<<"content-type">>, <<"text/plain; charset=utf-8">>}],
+                   Body, Req),
+    {ok, Req3, State}.
+
 terminate(_Reason, _Req, _State) ->
     ok.
-

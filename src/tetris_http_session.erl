@@ -1,13 +1,9 @@
 -module(tetris_http_session).
--behaviour(cowboy_middleware).
 
 -compile([export_all]).
 
-%% cowboy_middleware callbacks
--export([execute/2]).
-
 -export([create_tables/0]).
-%% -export([ensure_session/1]).
+-export([ensure_session/1, set_value/3]).
 
 -record(session, {session_id :: binary(),
                   attributes = #{} :: #{}}).
@@ -54,6 +50,7 @@ ensure_session(Req) ->
             end
     end.
 
-execute(Req, Env) ->
-    {ok, Session, Req2} = ensure_session(Req),
-    {ok, cowboy_req:set_meta(session, Session, Req2), Env}.
+set_value(Session, Name, Value) ->
+    Session2 = Session#session{attributes = maps:put(Name, Value, Session#session.attributes)},
+    mnesia:dirty_write(http_sessions, Session2),
+    {ok, Session2}.
