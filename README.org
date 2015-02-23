@@ -1,0 +1,14 @@
+* What happens when player arrives on a game page
+  - ws/bullet connection is initiated
+  - bullet init/4 callback is called
+  - we should start unique process that will handle interaction with this player
+    - this process will also handle queueing of outgoing network
+      commands (for a very short time, in case bullet connection is
+      lost)
+    - this process can be in one of the following states:
+      - waiting for opponent
+      - playing
+      - lost
+      - won
+  - after opponnent has connected, we should enter 'playing' state,
+    and create new tetris_game process.

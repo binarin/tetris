@@ -6,18 +6,6 @@
 
 -include("tetris_user.hrl").
 
-init_session({Req, State}) ->
-    {ok, Session, Req2} = tetris_http_session:ensure_session(Req),
-    {Req2, State#{session => Session}}.
-
-init_user({Req, #{session := Session} = State}) ->
-    case tetris_http_session:get_value(user_id, Session) of
-        undefined ->
-            {Req, State#{user => undefined}};
-        UserId when is_integer(UserId) ->
-            {Req, State#{user => tetris_user:get_user(UserId)}}
-    end.
-
 init_bindings({Req, State}) ->
     {Bindings, Req2} = cowboy_req:bindings(Req),
     State2 = State#{page => proplists:get_value(page, Bindings)},
@@ -29,12 +17,9 @@ init_method({Req, State}) ->
     {Req2, State2}.
 
 init({_TransportName, _ProtocolName}, Req, _Opts) ->
-    {Req1, State1} = lists:foldl(fun (InitFun, Acc) -> InitFun(Acc) end,
-                                 {Req, #{}},
-                                 [fun init_session/1,
-                                  fun init_user/1,
-                                  fun init_bindings/1,
-                                  fun init_method/1]),
+    {Req1, State1} = tetris_http_init:init_from_request(
+                       Req, [fun init_bindings/1,
+                             fun init_method/1]),
     {ok, Req1, State1}.
 
 respond_template(Template, Vars, Req, State) ->
@@ -56,7 +41,7 @@ try_login(Req, State) ->
         UserIdStr ->
             User = tetris_user:get_user(binary_to_integer(UserIdStr)),
             lager:info("User ~p logged in.", [User]),
-            {ok, Session} = tetris_http_session:set_value(maps:get(session, State), user_id, User#user.id),
+            {ok, Session} = tetris_http_session:set_value(user_id, User#user.id, maps:get(session, State)),
             {true, Req2, State#{user => User, session => Session}}
     end.
 
@@ -72,12 +57,17 @@ handle(Req, #{page := <<"login">>, user := undefined} = State) ->
     respond_template(login_dtl, [], Req, State);
 handle(Req, #{user := undefined} = State) ->
     redirect(<<"/login">>, Req, State);
+%% User is definitely authorized after previous clause
+handle(Req, #{page := <<"login">>} = State) ->
+    redirect(<<"/main">>, Req, State);
+handle(Req, #{page := <<"game">>} = State) ->
+    respond_template(game_dtl, [], Req, State);
+handle(Req, #{page := Page} = State) when Page == undefined orelse Page == <<"main">> ->
+    respond_template(main_dtl, [], Req, State);
 handle(Req, State) ->
-    {ok, Body} = main_dtl:render(State),
-    {ok, Req3} = cowboy_req:reply(
-                   200, [{<<"content-type">>, <<"text/plain; charset=utf-8">>}],
-                   Body, Req),
-    {ok, Req3, State}.
+    lager:info("Req ~p", [State]),
+    {ok, Req2} = cowboy_req:reply(404, Req),
+    {ok, Req2, State}.
 
 terminate(_Reason, _Req, _State) ->
     ok.

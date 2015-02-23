@@ -1,12 +1,29 @@
+%% @doc Raw network interaction with user (connection and
+%% serialization handling).
+%% @end
 -module(tetris_bullet).
 -compile([{parse_transform, lager_transform}]).
+
+%% bullet callbacks
 -export([init/4, stream/3, info/3, terminate/2]).
 
+%% API for sending messages to client.
 -export([reset_board/4, current_block/4]).
 
+-include("tetris_user.hrl").
+
 init(_Transport, Req, _Opts, _Active = true) ->
-    tetris_game:player_connected(tetris_game, 1, self()),
-    {ok, Req, undefined_state};
+    {Req1, State1} = tetris_http_init:init_from_request(Req),
+    lager:info("Bullet state is ~p", [State1]),
+    case maps:get(user, State1) of
+        undefined ->
+            {ok, Req2} = cowboy_req:reply(403, Req1),
+            {shutdown, Req2, State1};
+        #user{} = User ->
+            {ok, Pid} = tetris_player:connected(User),
+            StateWithPid = State1#{player_pid => Pid},
+            {ok, Req1, StateWithPid}
+    end;
 init(_Transport, Req, _Opts, _Active) ->
     {ok, Req, undefined_state}.
 

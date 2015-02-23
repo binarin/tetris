@@ -9,7 +9,8 @@
                         cowboy,
                         lager,
                         crypto,
-                        mnesia
+                        mnesia,
+                        gproc
 	]},
 	{mod, {tetris_app, []}},
 	{env, []}

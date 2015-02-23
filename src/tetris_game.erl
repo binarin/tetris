@@ -8,7 +8,6 @@
 
 -behaviour(gen_server).
 
-
 %% API
 -export([start/0, start_link/0, player_connected/3, player_disconnected/3,
          keypress/2]).
@@ -69,7 +68,6 @@
 -record(state, {player_id,
                 player_socket,
                 board,
-                speed,  %% milliseconds between automatic block movements
                 block_move_timer,
                 current_block,
                 current_col,
@@ -248,7 +246,6 @@ random_block() ->
 start_game(State) ->
     {ok, TRef} = timer:send_interval(500, move_block),
     State#state{
-      speed = 500,
       board = make_empty_board(),
       current_block = random_block(),
       current_row = 0,
@@ -256,7 +253,10 @@ start_game(State) ->
       block_move_timer = TRef}.
 
 stop_game(State) ->
-    {ok, cancel} = timer:cancel(State#state.block_move_timer),
+    case State#state.block_move_timer of
+        undefined -> undefined;
+        Timer -> {ok, cancel} = timer:cancel(Timer)
+    end,
     State#state{block_move_timer = undefined}.
 
 handle_keypress_call({keypress, <<"up">>}, _From, State) ->
@@ -432,7 +432,6 @@ margin_left(_, _) ->
 %% to aleviate rotation side-effects.
 %% @end
 strip_margins(BlockArray, StripRows, StripCols) ->
-    io:format("Strip ~p - ~p,~p~n", [BlockArray, StripRows, StripCols]),
     array:from_list(
       lists:map(
         fun (Idx) ->

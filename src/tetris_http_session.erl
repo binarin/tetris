@@ -50,8 +50,8 @@ ensure_session(Req) ->
             end
     end.
 
-set_value(Session, Name, Value) ->
-    Session2 = Session#session{attributes = maps:put(Name, Value, Session#session.attributes)},
+set_value(Key, Value, Session) ->
+    Session2 = Session#session{attributes = maps:put(Key, Value, Session#session.attributes)},
     mnesia:dirty_write(http_sessions, Session2),
     {ok, Session2}.
 

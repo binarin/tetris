@@ -10,11 +10,11 @@ update_dispatch() ->
 
 cowboy_dispatch() ->
     cowboy_router:compile(
-      [{'_', [%% {"/", cowboy_static, {priv_file, tetris, "index.html"}},
-              {"/[:page]", tetris_http_pages, []},
-              {"/ws", bullet_handler, [{handler, tetris_bullet}]},
-              {"/js/bullet.js", cowboy_static, {priv_file, bullet, "bullet.js"}},
-              {"/static/[...]", cowboy_static, {priv_dir, tetris, "static"}}]}
+      [{'_', [{"/ws", bullet_handler, [{handler, tetris_bullet}]}
+             ,{"/static/js/bullet.js", cowboy_static, {priv_file, bullet, "bullet.js"}}
+             ,{"/static/[...]", cowboy_static, {priv_dir, tetris, "static"}}
+             ,{"/[:page]", tetris_http_pages, []}
+             ]}
       ]).
 
 start(_Type, _Args) ->

@@ -1,1 +1,3 @@
-Hello, {{ user }}!
+Hello, {{ user.id }}!
+
+Wanna play a <a href="/game">game</a>?

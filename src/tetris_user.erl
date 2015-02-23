@@ -4,7 +4,7 @@
 -include("tetris_user.hrl").
 
 -export([create_tables/0]).
--export([get_user/1]).
+-export([get_user/1, to_proplist/1]).
 
 create_tables() ->
     {atomic, ok} = mnesia:create_table(user,
@@ -13,5 +13,7 @@ create_tables() ->
 
 get_user(UserId) when is_integer(UserId) ->
     [UserRecord] = mnesia:dirty_read(user, UserId),
-    lager:info("Got ~p", [UserRecord]),
     UserRecord.
+
+to_proplist(#user{id = Id, attr = Attr}) ->
+    [{id, Id}, {attr, Attr}].
